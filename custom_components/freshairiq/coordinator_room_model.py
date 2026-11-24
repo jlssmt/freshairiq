@@ -37,6 +37,7 @@ from .iq2_runtime import iq2_base_rate, iq2_forecast_arguments, iq2_start_contex
 from .forecast_shadow import freeze_shadow_start
 from .forecast_validation import START_FORECAST_CONTEXT_VERSION, evaluate_start_forecast_at_duration, freeze_start_forecast_context
 from .learning_effectiveness import freeze_learning_effectiveness_context
+from .co2_fall import co2_airing_given_up, co2_slope_ppm_min
 from .model import RoomInput, absolute_humidity, evaluate_room, scaled_min_return
 from .moisture_source import update_moisture_source
 from .post_stabilization import prune_history as prune_stabilization_history, update_post_close_observation
@@ -109,6 +110,20 @@ class RoomModelMixin:
         )
         sources[str(key)] = source_fields(str(entity), value, reason)
         return value
+
+    def _co2_hold(self, key: Any, mem: dict[str, Any], co2: Any, options: Any, elapsed: Any, now: datetime) -> bool:
+        """#31: the CO2 hold band of a running airing, released early once CO2 levels off above the release level.
+
+        Runtime-only samples of the running airing; the caller stores the release through the usual latch update.
+        """
+        samples = self.__dict__.setdefault("_co2_samples", {}).setdefault(str(key), [])
+        latched = bool(mem.get("co2_lead_latched"))
+        if not mem["session_active"]:
+            samples.clear()
+        elif co2 is not None:
+            samples.append((now.timestamp(), float(co2))); del samples[:-60]
+            return latched and not co2_airing_given_up(float(co2), options, co2_slope_ppm_min(samples), elapsed)
+        return latched
 
     def _dishwasher_phase(self, cfg: dict[str, Any]) -> str | None:
         """0.26.7.0 (#18): phase of the room's optional dishwasher signal (None without one)."""
@@ -220,7 +235,7 @@ class RoomModelMixin:
             volume_m3=float(cfg[CONF_ROOM_VOLUME]), contact_open=is_open, contact_open_seconds=raw_open_seconds,
             learning_rate=effective_learning_rate, learning_samples=effective_learning_samples, co2=co2,
             cooling_allowed="temperature" not in disabled_goals, comfort_target_c=room_comfort_target(cfg, mem)[0] if "temperature" not in disabled_goals else None,
-            surface_reference_temperature=self.__dict__.get("_wall_reference_t", {}).get(str(key)), surface_rh_helper=self._surface_rh_helper(key, cfg), co2_lead_latched=bool(mem.get("co2_lead_latched")), session_co2_only=bool(mem["session_active"] and mem.get("session_co2_only")),
+            surface_reference_temperature=self.__dict__.get("_wall_reference_t", {}).get(str(key)), surface_rh_helper=self._surface_rh_helper(key, cfg), co2_lead_latched=self._co2_hold(key, mem, co2, options, elapsed, now), session_co2_only=bool(mem["session_active"] and mem.get("session_co2_only")),
             co2_sensor_missing=bool(cfg.get(CONF_ROOM_CO2)) and co2 is None and "co2" not in disabled_goals,
             humidity_plateau=track_session(mem, session_active=bool(mem["session_active"]), elapsed_min=elapsed, temp_c=t, rh=rh, reports=int(mem.get("session_humidity_reports", 0))),
             session_active=bool(mem["session_active"]), session_elapsed_min=elapsed, session_start_ah=mem.get("session_start_ah"),
@@ -365,7 +380,7 @@ class RoomModelMixin:
         mem["last_measurement_at"] = now.isoformat()
         mem["last_measurement_valid"] = result.data_quality == "ok"
         # audit S04: a sensor without a value keeps the hold band – only a valid reading below it ends it
-        co2_latched = bool(mem.get("co2_lead_latched")) if room_input.co2_sensor_missing else co2_lead(co2, options, bool(mem.get("co2_lead_latched")))
+        co2_latched = bool(mem.get("co2_lead_latched")) if room_input.co2_sensor_missing else co2_lead(co2, options, room_input.co2_lead_latched)  # #31: an early release of the hold sticks (re-arms only at co2_warn)
         if bool(mem.get("co2_lead_latched")) != co2_latched:
             mem["co2_lead_latched"] = co2_latched; changed = True
         action, reason, reason_list = _recommendation(result, options, pollen=pollen, co2=co2, airflow=airflow, wind_bearing=wind_bearing, wind_speed=wind_speed, outdoor_pm25=outdoor_pm25, ventilation_latched=bool(room_input.ventilation_latched), co2_latched=co2_latched)

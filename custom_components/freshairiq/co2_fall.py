@@ -17,7 +17,7 @@ def co2_slope_ppm_min(samples: list[tuple[float, float]]) -> float | None:
     if not samples:
         return None
     recent = [s for s in samples if s[0] >= samples[-1][0] - CO2_SLOPE_WINDOW_S]
-    if len(recent) < 2 or recent[-1][0] - recent[0][0] < 60.0:
+    if recent[-1][0] - recent[0][0] < 60.0:  # the span also guarantees two points
         return None
     return linear_regression([s[0] / 60.0 for s in recent], [s[1] for s in recent]).slope
 

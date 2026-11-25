@@ -179,7 +179,7 @@ class RoomResultMixin:
             old = finite_float(trend_prev.get(name))
             return ((float(cur)-old)/trend_dt) if cur is not None and old is not None and trend_dt else None
         goal_state = evaluate_goals(
-            humidity=rh, target_rh=options.get("target_rh", 55.0), co2=co2, co2_warn=options.get("co2_warn", 1000.0),
+            humidity=rh, target_rh=options.get("target_rh", 55.0), co2=None if mem.get("session_co2_given_up") else co2, co2_warn=options.get("co2_warn", 1000.0),
             temperature=t, temperature_target=comfort_target, humidity_rate_pct_min=_trend(rh,"rh"),
             co2_rate_ppm_min=_trend(co2,"co2"), temperature_rate_c_min=_trend(t,"temp"),
             priorities=cfg.get(CONF_ROOM_GOAL_PRIORITIES, []),

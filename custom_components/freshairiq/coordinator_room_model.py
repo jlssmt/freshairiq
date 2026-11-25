@@ -23,6 +23,7 @@ from .const import (
 )
 from .consolidation import session_target_min as _session_target_min
 from .coordinator_contacts import _contact_ids, _room_orientation_factor
+from .coordinator_sources import _state_report_timestamp
 from .energy import (
     exchanged_air_fraction,
     heating_cost_context,
@@ -111,18 +112,25 @@ class RoomModelMixin:
         sources[str(key)] = source_fields(str(entity), value, reason)
         return value
 
-    def _co2_hold(self, key: Any, mem: dict[str, Any], co2: Any, options: Any, elapsed: Any, now: datetime) -> bool:
+    def _co2_hold(self, key: Any, cfg: Any, mem: dict[str, Any], co2: Any, options: Any, elapsed: Any) -> bool:
         """#31: the CO2 hold band of a running airing, released early once CO2 levels off above the release level.
 
-        Runtime-only samples of the running airing; the caller stores the release through the usual latch update.
+        Runtime-only samples, one per sensor report (not per refresh); the caller stores the release through the usual
+        latch update. A release is remembered for the airing (``session_co2_given_up``) so nothing claims CO2 reached.
         """
         samples = self.__dict__.setdefault("_co2_samples", {}).setdefault(str(key), [])
         latched = bool(mem.get("co2_lead_latched"))
+        stamp = _state_report_timestamp(self.hass.states.get(str(cfg.get(CONF_ROOM_CO2) or "")))
         if not mem["session_active"]:
             samples.clear()
-        elif co2 is not None:
-            samples.append((now.timestamp(), float(co2))); del samples[:-60]
-            return latched and not co2_airing_given_up(float(co2), options, co2_slope_ppm_min(samples), elapsed)
+        elif co2 is not None and stamp:
+            if not samples or datetime.fromisoformat(stamp).timestamp() > samples[-1][0]:
+                samples.append((datetime.fromisoformat(stamp).timestamp(), float(co2))); del samples[:-60]
+            if co2 >= float(options.get("co2_warn", 1000.0)):
+                mem.pop("session_co2_given_up", None)
+            elif latched and co2_airing_given_up(float(co2), options, co2_slope_ppm_min(samples), elapsed):
+                mem["session_co2_given_up"] = True
+                return False
         return latched
 
     def _dishwasher_phase(self, cfg: dict[str, Any]) -> str | None:
@@ -235,7 +243,7 @@ class RoomModelMixin:
             volume_m3=float(cfg[CONF_ROOM_VOLUME]), contact_open=is_open, contact_open_seconds=raw_open_seconds,
             learning_rate=effective_learning_rate, learning_samples=effective_learning_samples, co2=co2,
             cooling_allowed="temperature" not in disabled_goals, comfort_target_c=room_comfort_target(cfg, mem)[0] if "temperature" not in disabled_goals else None,
-            surface_reference_temperature=self.__dict__.get("_wall_reference_t", {}).get(str(key)), surface_rh_helper=self._surface_rh_helper(key, cfg), co2_lead_latched=self._co2_hold(key, mem, co2, options, elapsed, now), session_co2_only=bool(mem["session_active"] and mem.get("session_co2_only")),
+            surface_reference_temperature=self.__dict__.get("_wall_reference_t", {}).get(str(key)), surface_rh_helper=self._surface_rh_helper(key, cfg), co2_lead_latched=self._co2_hold(key, cfg, mem, co2, options, elapsed), co2_given_up=bool(mem.get("session_co2_given_up")), session_co2_only=bool(mem["session_active"] and mem.get("session_co2_only")),
             co2_sensor_missing=bool(cfg.get(CONF_ROOM_CO2)) and co2 is None and "co2" not in disabled_goals,
             humidity_plateau=track_session(mem, session_active=bool(mem["session_active"]), elapsed_min=elapsed, temp_c=t, rh=rh, reports=int(mem.get("session_humidity_reports", 0))),
             session_active=bool(mem["session_active"]), session_elapsed_min=elapsed, session_start_ah=mem.get("session_start_ah"),

@@ -89,10 +89,9 @@ def test_mould_protection_keeps_the_airing_open_after_a_give_up():
     assert result.action == "Continue ventilating" and not result.close_recommended
 
 
-def test_a_slow_sensor_gets_a_slope_from_its_previous_report():
-    assert co2_slope_ppm_min([(0, 800), (300, 700)]) == pytest.approx(-20)
-    assert co2_slope_ppm_min([(0, 900), (300, 800), (600, 700), (900, 695)]) == pytest.approx(-1)  # window reaches one report back
-    assert co2_airing_given_up(700, OPTIONS, co2_slope_ppm_min([(0, 702), (300, 700)]), 10.0) is True
+def test_a_sensor_reporting_less_often_than_every_two_minutes_gives_no_slope():
+    assert co2_slope_ppm_min([(0, 800), (300, 700), (600, 650)]) is None
+    assert co2_airing_given_up(700, OPTIONS, None, 10.0) is False  # so its airing keeps going
 
 
 def _walk(options=OPTIONS):
@@ -107,4 +106,4 @@ def _walk(options=OPTIONS):
 def test_issue_example_is_silent_while_falling_fast_and_gives_up_at_360_s():
     assert _walk() == (360, 698)
     slopes = [co2_slope_ppm_min([(float(s), float(p)) for s, p in ISSUE_SERIES[: i + 1]]) for i in range(1, 7)]
-    assert [None if s is None else round(s) for s in slopes] == [-170, -95, -38, -17, -8, -1]  # 2-minute fit of sparse samples
+    assert [None if s is None else round(s) for s in slopes] == [-170, -95, -38, -17, -8, None]  # 2-minute fit of sparse samples

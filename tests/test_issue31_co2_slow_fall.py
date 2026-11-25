@@ -74,9 +74,25 @@ def test_given_up_co2_airing_closes_with_the_slow_fall_reason_and_claims_no_goal
     assert "ppm" in _close_reason(result, GOALS) and "erreicht" not in _close_reason(result, GOALS)
 
 
-def test_a_held_or_mixed_airing_is_not_closed_by_the_give_up():
-    assert evaluate_room(_running(co2_lead_latched=True), GOALS, False).action != "Close"
+def test_the_give_up_closes_only_for_a_co2_only_airing_of_a_room_that_closes_on_goals():
+    assert evaluate_room(_running(co2_given_up=True), GOALS, False).action == "Close"
+    assert evaluate_room(_running(co2_lead_latched=True), GOALS, False).action != "Close"  # still held: no give-up yet
     assert evaluate_room(_running(co2_given_up=True, session_co2_only=False), GOALS, False).reason != CO2_SLOW_FALL_CLOSE_REASON
+    keep_drying = {k: v for k, v in GOALS.items() if k != "room_close_on_goals"}  # the room chose to keep drying
+    result = evaluate_room(_running(co2_given_up=True), keep_drying, False)
+    assert result.reason != CO2_SLOW_FALL_CLOSE_REASON and result.action != "Close"
+
+
+def test_mould_protection_keeps_the_airing_open_after_a_give_up():
+    cold = dict(temperature=21.0, humidity=58.0, reference_temperature=-8.0, reference_humidity=80.0, surface_rh_helper=92.0)
+    result = evaluate_room(_running(co2_given_up=True, **cold), GOALS, False)
+    assert result.action == "Continue ventilating" and not result.close_recommended
+
+
+def test_a_slow_sensor_gets_a_slope_from_its_previous_report():
+    assert co2_slope_ppm_min([(0, 800), (300, 700)]) == pytest.approx(-20)
+    assert co2_slope_ppm_min([(0, 900), (300, 800), (600, 700), (900, 695)]) == pytest.approx(-1)  # window reaches one report back
+    assert co2_airing_given_up(700, OPTIONS, co2_slope_ppm_min([(0, 702), (300, 700)]), 10.0) is True
 
 
 def _walk(options=OPTIONS):
@@ -91,4 +107,4 @@ def _walk(options=OPTIONS):
 def test_issue_example_is_silent_while_falling_fast_and_gives_up_at_360_s():
     assert _walk() == (360, 698)
     slopes = [co2_slope_ppm_min([(float(s), float(p)) for s, p in ISSUE_SERIES[: i + 1]]) for i in range(1, 7)]
-    assert [None if s is None else round(s) for s in slopes] == [-170, -95, -38, -17, -8, None]  # 2-minute fit of sparse samples
+    assert [None if s is None else round(s) for s in slopes] == [-170, -95, -38, -17, -8, -1]  # 2-minute fit of sparse samples

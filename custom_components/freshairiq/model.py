@@ -339,6 +339,11 @@ def _goals_reached_close(room: RoomInput, options: dict[str, Any], *, co2_held: 
     return room.humidity <= target + (VENTILATION_HYSTERESIS_RH if hold else 0.0)
 
 
+def _co2_close(room: RoomInput, options: dict[str, Any], urgent: bool) -> bool:
+    """#31: a CO2-only airing that gave the CO2 hold up closes like a benefit close – only for a room that closes on goals."""
+    return bool(room.co2_given_up and room.session_co2_only and options.get("room_close_on_goals") and not urgent)
+
+
 def _running_close(
     room: RoomInput, options: dict[str, Any], *, delta: float, mins: float, profile: str, candidate: bool, urgent: bool,
     co2_held: bool, source_drying_useful: bool, outdoor_blocked: bool, low_return: bool, cooling_still_useful: bool,
@@ -367,7 +372,7 @@ def _running_close(
     moisture_ingress, drying_exhausted = moisture_effect_next5 <= 0.0, delta <= close_delta  # 0.26.5.4 (review A01)
     # case C: the physical situation, never a clock. Final hotfix F11-B: the lower humidity setting
     # (``humidify_below_rh``) is no reason to close on its own – it keeps its other uses.
-    air_no_longer_helps = moisture_ingress or drying_exhausted or (room.co2_given_up and room.session_co2_only)  # #31
+    air_no_longer_helps = moisture_ingress or drying_exhausted or _co2_close(room, options, urgent)
     temperature_limit = temperature_limit_reached(room, options) and not urgent
     summer_warming = (
         profile == "summer_cooling"
@@ -621,7 +626,7 @@ def evaluate_room(room: RoomInput, options: dict[str, Any], cross_ventilation: b
             action, reason, close_kind = "Close", GOALS_HELD_CLOSE_REASON, "goals_held"
         elif room.close_notified_kind == BENEFIT_CLOSE_KIND and delta > float(options.get("close_delta", 0.4)) and next5 > 0:
             action, reason, close_kind = "Close", BENEFIT_EXHAUSTED_CLOSE_REASON, BENEFIT_CLOSE_KIND
-        elif room.co2_given_up and room.session_co2_only and delta > float(options.get("close_delta", 0.4)):
+        elif _co2_close(room, options, urgent) and delta > float(options.get("close_delta", 0.4)):
             action, reason, close_kind = "Close", CO2_SLOW_FALL_CLOSE_REASON, "air_no_longer_helps"
         else:
             action, reason, close_kind = "Close", AIR_NO_LONGER_HELPS_CLOSE_REASON, "air_no_longer_helps"

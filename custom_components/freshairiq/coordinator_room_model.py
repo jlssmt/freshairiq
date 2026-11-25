@@ -39,7 +39,7 @@ from .forecast_shadow import freeze_shadow_start
 from .forecast_validation import START_FORECAST_CONTEXT_VERSION, evaluate_start_forecast_at_duration, freeze_start_forecast_context
 from .learning_effectiveness import freeze_learning_effectiveness_context
 from .co2_fall import co2_airing_given_up, co2_slope_ppm_min
-from .model import RoomInput, absolute_humidity, evaluate_room, scaled_min_return
+from .model import RoomInput, absolute_humidity, co2_release_ppm, evaluate_room, scaled_min_return
 from .moisture_source import update_moisture_source
 from .post_stabilization import prune_history as prune_stabilization_history, update_post_close_observation
 from .room_recommendation import _recommendation, co2_lead
@@ -126,7 +126,7 @@ class RoomModelMixin:
         elif co2 is not None and stamp:
             if not samples or datetime.fromisoformat(stamp).timestamp() > samples[-1][0]:
                 samples.append((datetime.fromisoformat(stamp).timestamp(), float(co2))); del samples[:-60]
-            if co2 >= float(options.get("co2_warn", 1000.0)):
+            if not co2_release_ppm(options) <= co2 < float(options.get("co2_warn", 1000.0)):  # the flag only holds inside the band
                 mem.pop("session_co2_given_up", None)
             elif latched and co2_airing_given_up(float(co2), options, co2_slope_ppm_min(samples), elapsed):
                 mem["session_co2_given_up"] = True

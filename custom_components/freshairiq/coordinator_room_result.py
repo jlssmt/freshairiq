@@ -179,7 +179,7 @@ class RoomResultMixin:
             old = finite_float(trend_prev.get(name))
             return ((float(cur)-old)/trend_dt) if cur is not None and old is not None and trend_dt else None
         goal_state = evaluate_goals(
-            humidity=rh, target_rh=options.get("target_rh", 55.0), co2=None if mem.get("session_co2_given_up") else co2, co2_warn=options.get("co2_warn", 1000.0),
+            humidity=rh, target_rh=options.get("target_rh", 55.0), co2=co2, co2_warn=options.get("co2_warn", 1000.0),
             temperature=t, temperature_target=comfort_target, humidity_rate_pct_min=_trend(rh,"rh"),
             co2_rate_ppm_min=_trend(co2,"co2"), temperature_rate_c_min=_trend(t,"temp"),
             priorities=cfg.get(CONF_ROOM_GOAL_PRIORITIES, []),
@@ -191,7 +191,7 @@ class RoomResultMixin:
             hard_close=bool(result.close_recommended),
             disabled_goals=disabled_goals,
             humidity_floor_rh=equilibrium_rh(t, result.reference_humidity) if (is_open or mem.get("session_active")) else None,
-            co2_release=co2_release_ppm(options), co2_latched=bool(mem.get("co2_lead_latched")),
+            co2_release=co2_release_ppm(options), co2_latched=bool(mem.get("co2_lead_latched") or mem.get("session_co2_given_up")),  # #31: given up keeps the release level as target
         )
         for goal in goal_state.get("goals", []):
             if goal.get("id") == "humidity":
@@ -199,7 +199,7 @@ class RoomResultMixin:
             elif goal.get("id") == "temperature":
                 goal["achievable_now"] = bool(result.cooling_candidate or (result.active and ref_t < t))
             elif goal.get("id") == "co2":
-                goal["achievable_now"] = bool(co2_available and co2_lead(co2, options, bool(mem.get("co2_lead_latched"))) and not (options.get("pollen_enabled", False) and options.get("pollen_strict_veto", True) and pollen > float(options.get("pollen_max", 4.0))) and not outdoor_pm25_blocked(options, outdoor_pm25))
+                goal["achievable_now"] = bool(co2_available and co2_lead(co2, options, bool(mem.get("co2_lead_latched"))) and not (options.get("pollen_enabled", False) and options.get("pollen_strict_veto", True) and pollen > float(options.get("pollen_max", 4.0))) and not outdoor_pm25_blocked(options, outdoor_pm25)); goal.update({"given_up": True} if mem.get("session_co2_given_up") else {})  # #31: the live coach does not keep the airing open for it
         mem["goal_trend_sample"] = {"at": now.isoformat(), "rh": rh, "co2": co2, "temp": t}
         return (
             changed, comfort_target, comfort_target_source, cooldown_demoted, cooldown_override, goal_state,

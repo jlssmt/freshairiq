@@ -13,11 +13,16 @@ CO2_RISE_PPM_MIN = 10.0  # rising faster than this: keep airing
 
 
 def co2_slope_ppm_min(samples: list[tuple[float, float]]) -> float | None:
-    """Least-squares CO2 slope (ppm/min) over the last two minutes of ``(seconds, ppm)`` samples; None when unknown."""
-    if not samples:
+    """Least-squares CO2 slope (ppm/min) of ``(seconds, ppm)`` samples; None when unknown.
+
+    The window is the last two minutes but always reaches back to the previous report, so a sensor that reports
+    less often than that still has a slope.
+    """
+    if len(samples) < 2:
         return None
-    recent = [s for s in samples if s[0] >= samples[-1][0] - CO2_SLOPE_WINDOW_S]
-    if recent[-1][0] - recent[0][0] < 60.0:  # the span also guarantees two points
+    start = min(samples[-1][0] - CO2_SLOPE_WINDOW_S, samples[-2][0])
+    recent = [s for s in samples if s[0] >= start]
+    if recent[-1][0] - recent[0][0] < 60.0:
         return None
     return linear_regression([s[0] / 60.0 for s in recent], [s[1] for s in recent]).slope
 

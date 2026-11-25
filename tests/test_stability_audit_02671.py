@@ -1330,7 +1330,7 @@ def test_support_134_the_co2_band_gives_one_advice_per_rise_and_no_ping_pong():
     initial = {"sensor.t": (21.0, T_C), "sensor.h": (45.0, H_PCT), "sensor.co2": (900, co2), "binary_sensor.f": ("off", {"device_class": "window"}),
                "sensor.aussen_t": (8.0, T_C), "sensor.aussen_h": (80.0, H_PCT)}
     steps = [{"advance": 180, "set": {"binary_sensor.f": window, "sensor.co2": (ppm, co2)}} for window, ppm in trace]
-    cycles = _chain([room], initial, steps, options={"co2_warn": 1000, "co2_release": 750, "co2_critical": 1400})[1:]
+    cycles = _chain([room], initial, steps, options={"co2_warn": 1000, "co2_release": 750, "co2_critical": 1400, "min_duration_min": 5})[1:]  # #31: no slow-fall give-up in the first 3 minutes
     goals = [next(g for g in c["rooms"]["wz"]["goal_state"]["goals"] if g["id"] == "co2") for c in cycles]
     actions = [c["rooms"]["wz"]["action"] for c in cycles]
     # the started CO₂ airing aims at the release level until it is reached, then the warning level is the target again
